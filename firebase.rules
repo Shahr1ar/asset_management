@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function validStatus(status) {
+      return status in ["active", "paused", "disabled"];
+    }
+
+    function validFinancialItem(item) {
+      return item.title is string &&
+        (!('description' in item) || item.description is string) &&
+        (!('defaultValue' in item) || item.defaultValue is number) &&
+        (!('isActive' in item) || item.isActive is bool) &&
+        (!('enabled' in item) || item.enabled is bool) &&
+        (!('key' in item) || item.key is string) &&
+        (!('type' in item) || item.type in ["income", "expense", "asset", "liability", "metric"]) &&
+        (!('editable' in item) || item.editable is bool) &&
+        (!('order' in item) || item.order is int);
+    }
+
+    function validProduct(product) {
+      return product.id is string &&
+        product.name is string &&
+        product.category in ["Steel", "Cement", "Consumer", "Others"] &&
+        product.price is number &&
+        product.is_active is bool &&
+        product.created_at is string &&
+        product.updated_at is string &&
+        (!('image' in product) || product.image is string || product.image == null) &&
+        (!('grade' in product) ||
+          product.grade == null ||
+          product.grade in ["Grade A", "Grade B"]);
+    }
+
+    function validProperty(property) {
+      return property.id is string &&
+        property.title is string &&
+        property.description is string &&
+        property.price is number &&
+        property.priceType is string &&
+        property.propertyType == "sale" &&
+        property.address is string &&
+        property.latitude is number &&
+        property.longitude is number &&
+        property.bedrooms is int &&
+        property.bathrooms is int &&
+        property.area is number &&
+        property.features is list &&
+        property.ownerName is string &&
+        property.phoneNumber is string &&
+        property.whatsappNumber is string &&
+        property.isActive is bool &&
+        (!('imageUrl' in property) || property.imageUrl is string);
+    }
+
+    function validMonthlySnapshot(snapshot) {
+      return snapshot.id is string &&
+        snapshot.key is string &&
+        snapshot.month is string &&
+        snapshot.year is int &&
+        snapshot.label is string &&
+        snapshot.items is list &&
+        snapshot.createdAt is string &&
+        snapshot.updatedAt is string &&
+        snapshot.storedAt is string &&
+        (!('source' in snapshot) || snapshot.source == "manual");
+    }
+
+    match /financial_items/{itemId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && validFinancialItem(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && validProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /properties/{propertyId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() && validProperty(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /app_defaults/admin_settings {
+      allow read, write: if isAdmin();
+    }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || request.auth.uid == uid;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() &&
+        (!('status' in request.resource.data) || validStatus(request.resource.data.status));
+
+      match /currentData/{docId} {
+        allow read: if isAdmin() || request.auth.uid == uid;
+        allow create, update: if isAdmin() &&
+          request.resource.data.items is list &&
+          request.resource.data.items.size() <= 100;
+        allow delete: if isAdmin();
+      }
+
+      match /monthly_history/{snapshotId} {
+        allow read: if isAdmin() || request.auth.uid == uid;
+        allow create, update: if isAdmin() && validMonthlySnapshot(request.resource.data);
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}
